@@ -1,0 +1,12 @@
+# Rules for `make api-lint`. The recommended set with warnings promoted to errors, minus three
+# rules that could only be answered by a guess today. Each returns in the PR that decides it.
+extends:
+  - recommended-strict
+
+rules:
+  # No authentication scheme is chosen yet. Declaring one here to satisfy the rule would pin
+  # the decision in the contract; it is an open question in docs/requirements.md instead, and
+  # this goes back to `error` in the ADR that answers it.
+  security-defined: off
+  # The only server is localhost, because nothing is deployed. Returns with the hosting ADR.
+  no-server-example.com: off

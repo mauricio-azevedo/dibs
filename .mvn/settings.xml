@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Project settings, applied by .mvn/maven.config to every ./mvnw run, locally and in CI.
+
+  Every repository id resolves to Maven Central. Dependency POMs leak private repositories into the
+  build (Flyway's parent declares two, a plugin dependency a third); without this, Maven queries each
+  on every resolution and logs a 401 or a TLS failure. Everything this project uses is on Central.
+  A dependency that genuinely lives elsewhere gets its repository in pom.xml and its id excluded
+  here: <mirrorOf>*,!that-id</mirrorOf>.
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.2.0 https://maven.apache.org/xsd/settings-1.2.0.xsd">
+  <mirrors>
+    <mirror>
+      <id>central</id>
+      <mirrorOf>*</mirrorOf>
+      <url>https://repo.maven.apache.org/maven2</url>
+    </mirror>
+  </mirrors>
+</settings>

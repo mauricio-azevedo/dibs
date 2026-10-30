@@ -1,0 +1,55 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+  "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+  "https://checkstyle.org/dtds/configuration_1_3.dtd">
+<!--
+  Rules review would otherwise catch by eye. Each names the CONTRIBUTING bullet it enforces.
+  Layout is Spotless's job; nothing here is about formatting.
+-->
+<module name="Checker">
+  <property name="severity" value="error"/>
+  <property name="charset" value="UTF-8"/>
+  <property name="fileExtensions" value="java"/>
+
+  <module name="TreeWalker">
+    <!-- Code: an escape hatch means the type isn't understood yet. -->
+    <module name="SuppressWarnings">
+      <property name="format" value=".*"/>
+      <message key="suppressed.warning.not.allowed"
+        value="@SuppressWarnings is not allowed; fix the type (CONTRIBUTING, Code)."/>
+    </module>
+
+    <!-- Stack: dependencies arrive through constructors. A single constructor needs no annotation. -->
+    <module name="RegexpSinglelineJava">
+      <property name="format" value="@Autowired"/>
+      <property name="ignoreComments" value="true"/>
+      <property name="message" value="Inject through the constructor; no @Autowired (CONTRIBUTING, Stack)."/>
+    </module>
+
+    <!-- Stack: money and quantities are BigDecimal or integers with an explicit scale, never double. -->
+    <module name="IllegalType">
+      <property name="illegalClassNames" value="double, float, Double, Float, java.lang.Double, java.lang.Float"/>
+      <message key="illegal.type"
+        value="''{0}'' cannot carry money or a quantity; use BigDecimal or an integer with an explicit scale (CONTRIBUTING, Stack)."/>
+    </module>
+
+    <!-- Observability: structured logs through the logger, never a print. -->
+    <module name="RegexpSinglelineJava">
+      <property name="format" value="System\.(out|err)\.|\.printStackTrace\("/>
+      <property name="ignoreComments" value="true"/>
+      <property name="message" value="Use the logger (CONTRIBUTING, Observability)."/>
+    </module>
+
+    <!-- Code: logic that decides gets its collaborators passed in. The clock is one of them. -->
+    <module name="RegexpSinglelineJava">
+      <property name="format"
+        value="\b(Instant|LocalDate|LocalDateTime|LocalTime|OffsetDateTime|ZonedDateTime|Year|YearMonth)\.now\(\)|System\.currentTimeMillis\(\)"/>
+      <property name="ignoreComments" value="true"/>
+      <property name="message" value="Take the time from the injected Clock: now(clock) (CONTRIBUTING, Code)."/>
+    </module>
+
+    <module name="AvoidStarImport"/>
+    <module name="MissingOverride"/>
+    <module name="EqualsHashCode"/>
+  </module>
+</module>

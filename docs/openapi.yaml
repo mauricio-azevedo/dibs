@@ -1,0 +1,322 @@
+openapi: 3.0.0
+info:
+  title: Dibs API
+  version: 0.1.0
+  description: |
+    Distributed inventory reservation service.
+
+    This file is the contract (R5.1). It covers Milestone 1 only: create a reservation,
+    read a SKU's inventory. Confirm, cancel, reservation query and movement history arrive
+    with the milestones that need them.
+
+    Liveness and readiness are not here. They are served on the management port as
+    operational surface, not API (R5.4).
+
+    Errors are RFC 9457 problem details with a stable, machine-readable `code` (R5.2, R5.3).
+    Status is for the class of failure, `code` for the cause:
+
+    | code | status | meaning |
+    |---|---|---|
+    | `malformed_input` | 400 | The request does not satisfy this contract. |
+    | `unknown_sku` | 404 | No such SKU. |
+    | `unknown_reservation` | 404 | No such reservation. |
+    | `insufficient_stock` | 409 | Fewer units are available than requested. |
+    | `idempotency_conflict` | 409 | The key was used with a different payload. |
+    | `invalid_transition` | 409 | The reservation is already in a terminal state. |
+    | `transient_failure` | 503 | A dependency is unavailable. The command may be retried under the same key. |
+
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://localhost:8080
+    description: |
+      `make dev`. Nothing is deployed yet; the hosting ADR adds the real one.
+
+tags:
+  - name: reservations
+    description: Holds on inventory and their lifecycle.
+  - name: inventory
+    description: What is on hand, held and committed, per SKU.
+
+paths:
+  /reservations:
+    post:
+      tags: [reservations]
+      summary: Reserve units of one SKU
+      description: |
+        Holds the requested quantity until the deadline, when the full quantity is available
+        at the point the decision commits (R1.4). Partial holds do not exist.
+
+        `Idempotency-Key` identifies the logical command across the client's retries. A retry
+        produces no additional hold (R3.1). What a replay returns — this response again, or
+        the reservation's current state — is ADR-0006, and is added here in the PR that
+        decides it.
+      operationId: createReservation
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReservationRequest'
+      responses:
+        '201':
+          description: The units are held.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reservation'
+        '400':
+          $ref: '#/components/responses/MalformedInput'
+        '404':
+          description: No such SKU.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: about:blank
+                title: Unknown SKU
+                status: 404
+                code: unknown_sku
+                detail: No SKU LIMITED-SNEAKER-42.
+        '409':
+          description: The command is understood but cannot be applied.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                insufficientStock:
+                  value:
+                    type: about:blank
+                    title: Insufficient stock
+                    status: 409
+                    code: insufficient_stock
+                    detail: 2 units requested, 1 available.
+                idempotencyConflict:
+                  value:
+                    type: about:blank
+                    title: Idempotency conflict
+                    status: 409
+                    code: idempotency_conflict
+                    detail: Key checkout-742:reserve was used with a different payload.
+        '503':
+          $ref: '#/components/responses/TransientFailure'
+
+  /inventory/items/{sku}:
+    get:
+      tags: [inventory]
+      summary: Read a SKU's inventory
+      operationId: getInventoryItem
+      parameters:
+        - name: sku
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/Sku'
+      responses:
+        '200':
+          description: The SKU's accounted inventory.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryItem'
+        '400':
+          $ref: '#/components/responses/MalformedInput'
+        '404':
+          description: No such SKU.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: about:blank
+                title: Unknown SKU
+                status: 404
+                code: unknown_sku
+                detail: No SKU LIMITED-SNEAKER-42.
+        '503':
+          $ref: '#/components/responses/TransientFailure'
+
+components:
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Identity of this logical command, stable across the client's retries. Its scope and
+        retention are ADR-0006.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+        pattern: '^[\x21-\x7E]+$'
+      example: checkout-742:reserve
+
+  responses:
+    MalformedInput:
+      description: The request does not satisfy this contract.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Malformed input
+            status: 400
+            code: malformed_input
+            detail: quantity must be a positive integer.
+    TransientFailure:
+      description: A dependency is unavailable. The command may be retried under the same key.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Transient failure
+            status: 503
+            code: transient_failure
+            detail: The command was not applied. Retry under the same key.
+
+  schemas:
+    Sku:
+      type: string
+      description: Identifies one stock-keeping unit.
+      minLength: 1
+      maxLength: 64
+      pattern: '^[A-Za-z0-9][A-Za-z0-9._-]*$'
+      example: LIMITED-SNEAKER-42
+
+    Quantity:
+      type: integer
+      format: int32
+      description: |
+        Indivisible units. Positive; zero, negative and fractional values are
+        `malformed_input`, and so is a value above the configured ceiling (R2.11).
+      minimum: 1
+      example: 2
+
+    ReservationStatus:
+      type: string
+      description: |
+        `ACTIVE` holds its units. The other three are terminal, and a reservation reaches
+        exactly one of them (R2.1, R2.2).
+      enum: [ACTIVE, CONFIRMED, CANCELLED, EXPIRED]
+
+    ReservationRequest:
+      type: object
+      required: [sku, quantity, orderId]
+      additionalProperties: false
+      properties:
+        sku:
+          $ref: '#/components/schemas/Sku'
+        quantity:
+          $ref: '#/components/schemas/Quantity'
+        orderId:
+          type: string
+          description: The caller's order this hold belongs to. Opaque here.
+          minLength: 1
+          maxLength: 64
+          example: order-742
+
+    Reservation:
+      type: object
+      required: [reservationId, sku, quantity, status, orderId, createdAt, expiresAt]
+      properties:
+        reservationId:
+          type: string
+          example: res-742
+        sku:
+          $ref: '#/components/schemas/Sku'
+        quantity:
+          $ref: '#/components/schemas/Quantity'
+        status:
+          $ref: '#/components/schemas/ReservationStatus'
+        orderId:
+          type: string
+          example: order-742
+        createdAt:
+          type: string
+          format: date-time
+          example: '2026-11-01T15:00:00Z'
+        expiresAt:
+          type: string
+          format: date-time
+          description: |
+            Creation time plus the configured TTL. How it is compared at equality is
+            ADR-0005 (R2.9).
+          example: '2026-11-01T15:10:00Z'
+
+    InventoryItem:
+      type: object
+      required: [sku, onHand, reserved, committed, available]
+      description: |
+        The names are `docs/glossary.md`. How the quantities relate to one another is
+        ADR-0003 (R1.1).
+      properties:
+        sku:
+          $ref: '#/components/schemas/Sku'
+        onHand:
+          type: integer
+          format: int64
+          description: Physical units recorded for the SKU.
+          minimum: 0
+          example: 100
+        reserved:
+          type: integer
+          format: int64
+          description: Units held by active reservations.
+          minimum: 0
+          example: 7
+        committed:
+          type: integer
+          format: int64
+          description: Units consumed by confirmed reservations.
+          minimum: 0
+          example: 12
+        available:
+          type: integer
+          format: int64
+          description: Units that can be newly reserved. Never negative (R1.3).
+          minimum: 0
+          example: 81
+
+    Problem:
+      type: object
+      description: RFC 9457 problem details, plus a stable `code`.
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          default: about:blank
+        title:
+          type: string
+        status:
+          type: integer
+          format: int32
+        code:
+          type: string
+          description: |
+            The cause, stable across releases. Removing one or changing its meaning is a
+            breaking change (R5.3).
+          enum:
+            - malformed_input
+            - unknown_sku
+            - unknown_reservation
+            - insufficient_stock
+            - idempotency_conflict
+            - invalid_transition
+            - transient_failure
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+          description: The trace id of the request, so a report names a line in the logs.

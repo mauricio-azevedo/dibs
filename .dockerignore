@@ -1,0 +1,3 @@
+# The image is built from the jar alone; see Dockerfile.
+*
+!target/*.jar
